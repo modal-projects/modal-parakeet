@@ -62,6 +62,7 @@ with image.imports():
     volumes={CACHE_DIR: model_cache}, 
     gpu="L40S", 
     image=image,
+    min_containers=1,
 )
 class Parakeet:
 
@@ -128,6 +129,8 @@ class Parakeet:
             with torch.autocast("cuda", enabled=True, dtype=torch.bfloat16), torch.inference_mode(), torch.no_grad():
                 output = self.model.transcribe(audio_data, batch_size=len(audio_data), num_workers=1)
         
+        if len(audio_data) == 1:
+            return output[0].text
         return [result.text for result in output]
 
 

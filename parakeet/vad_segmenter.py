@@ -37,23 +37,23 @@ with image.imports():
 @app.cls(
     volumes={cache_path: model_cache}, 
     image=image,
+    min_containers=1,
 )
 class SileroVADSegmenter:
-    transcriber_app: str = modal.parameter(default="parakeet-transcription")
-    transcriber_cls: str = modal.parameter(default="Parakeet")
 
-    @modal.enter(snap=True)
+    @modal.enter()
     def load(self):
 
 
         print("Loading Silero VAD...")
-        self.silero_vad = SileroVADAnalyzer(
-            params=VADParams(
+        self.silero_vad = SileroVADAnalyzer()
+        self.silero_vad.set_sample_rate(SAMPLE_RATE)
+        self.silero_vad.set_params(
+            VADParams(
                 stop_secs=0.2,
-                sampling_rate=SAMPLE_RATE,
             )
-        ),
-        self.transcriber = modal.Cls.from_name(self.transcriber_app, self.transcriber_cls)()
+        )
+        self.transcriber = modal.Cls.from_name("parakeet-transcription", "Parakeet")()
 
         print("Container ready.")
 
@@ -73,6 +73,7 @@ class SileroVADSegmenter:
             async def recv_loop(ws, audio_queue):
                 while True:
                     data = await ws.receive_bytes()
+                    print(f"Received {len(data)} bytes")
                     if data == SHUTDOWN_SIGNAL:
                         await streaming_audio_queue.put(SHUTDOWN_SIGNAL)
                         break
@@ -88,25 +89,34 @@ class SileroVADSegmenter:
                         await segmented_audio_queue.put(SHUTDOWN_SIGNAL)
                         break
                     audio_buffer += streaming_audio_chunk
-                    new_vad_state = await self.vad.process(streaming_audio_chunk)
-                    if current_vad_state == VADState.QUIET and new_vad_state == VADState.QUIET:
+                    new_vad_state = await self.silero_vad.analyze_audio(streaming_audio_chunk)
+                    print(f"New VAD state: {new_vad_state}")
+                    if (
+                        current_vad_state == VADState.QUIET 
+                        and new_vad_state == VADState.QUIET
+                        and len(audio_buffer) > audio_buffer_size_1s
+                    ):
                         # keep around one second buffer if quiety
                         discarded = len(audio_buffer) - audio_buffer_size_1s
                         audio_buffer = audio_buffer[discarded:]
-                    if current_vad_state in [
+                    elif current_vad_state in [
                         VADState.STARTING, VADState.SPEAKING, VADState.STOPPING
                     ] and new_vad_state == VADState.QUIET:
-                        await transcription_queue.put(audio_buffer)
+                        print(f"Speech ended, sending {len(audio_buffer)} bytes to transcription")
+                        await segmented_audio_queue.put(audio_buffer)
                         audio_buffer = bytearray()
+                    current_vad_state = new_vad_state
 
 
             async def trancription_loop(segmented_audio_queue, transcription_queue):
                 while True:
                     audio_segment = await segmented_audio_queue.get()
-                    if transcript == SHUTDOWN_SIGNAL:
+                    if audio_segment == SHUTDOWN_SIGNAL:
                         await transcription_queue.put(SHUTDOWN_SIGNAL)
                         break
-                    transcript = await self.transcriber.transcribe(audio_segment)
+                    print(f"Received {len(audio_segment)} bytes for transcription")
+                    transcript = await self.transcriber.transcribe.remote(audio_segment)
+                    print(f"Transcript: {transcript}")
                     await transcription_queue.put(transcript)
 
             async def send_loop(ws, transcription_queue):
@@ -138,12 +148,11 @@ class SileroVADSegmenter:
 
         
 
-
 web_image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install("fastapi")
     .add_local_dir(
-        Path(__file__).parent /"streaming-parakeet-frontend", "/root/frontend"
+        Path(__file__).parent.parent /"streaming-parakeet-frontend", "/root/frontend"
     )
 )
 
@@ -154,3 +163,36 @@ with web_image.imports():
 
 
 
+
+
+
+@app.cls(image=web_image)
+@modal.concurrent(max_inputs=1000)
+class WebServer:
+
+    @modal.asgi_app()
+    def web(self):
+        
+
+        web_app = FastAPI()
+        web_app.mount("/static", StaticFiles(directory="frontend"))
+
+        @web_app.get("/status")
+        async def status():
+            return Response(status_code=200)
+
+        # serve frontend
+        @web_app.get("/")
+        async def index():
+            html_content = open("frontend/index.html").read()
+            
+            # Get the base WebSocket URL (without transcriber parameters)
+            ws_base_url = SileroVADSegmenter().webapp.get_web_url().replace('http', 'ws') + "/ws"
+            script_tag = f'<script>window.WS_BASE_URL = "{ws_base_url}";</script>'
+            html_content = html_content.replace(
+                '<script src="/static/parakeet.js"></script>', 
+                f'{script_tag}\n<script src="/static/parakeet.js"></script>'
+            )
+            return HTMLResponse(content=html_content)
+
+        return web_app
