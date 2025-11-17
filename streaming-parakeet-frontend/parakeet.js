@@ -7,26 +7,10 @@ let workletNode;
 
 const recordButton = document.getElementById("recordButton");
 const transcriptionDiv = document.getElementById("transcription");
-const transcriberSelect = document.getElementById("transcriberSelect");
 
-// Transcriber configurations
-const transcriberConfigs = {
-    parakeet: {
-        app: "parakeet-dynamic-batching",
-        cls: "Transcriber"
-    },
-    whisper: {
-        app: "whisper-dynamic-batching", 
-        cls: "Model"
-    }
-};
-
-// Function to get WebSocket URL based on selected transcriber
+// Get WebSocket URL (hardcoded to Parakeet)
 function getWebSocketUrl() {
-    const baseUrl = window.WS_BASE_URL || "/ws";
-    const selectedTranscriber = transcriberSelect.value;
-    const config = transcriberConfigs[selectedTranscriber];
-    return `${baseUrl}?transcriber_app=${config.app}&transcriber_cls=${config.cls}`;
+    return window.WS_BASE_URL || "/ws";
 }
 
 // Constants for audio processing
