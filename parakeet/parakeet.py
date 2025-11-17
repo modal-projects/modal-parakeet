@@ -110,9 +110,10 @@ class Parakeet:
             print(await self.transcribe.local(batch))
 
     @modal.method()
-    async def transcribe(self, audio_data: Union[bytes, list[bytes]]) -> str:
+    async def transcribe(self, audio_data: Union[bytes, bytearray, list[bytes]]) -> str:
 
-        if isinstance(audio_data, bytes):
+        print(type(audio_data))
+        if not isinstance(audio_data, list):
             audio_data = [audio_data]
 
         print(f"Received {len(audio_data)} audio segments for transcription.")
@@ -132,6 +133,7 @@ class Parakeet:
         if len(audio_data) == 1:
             return output[0].text
         return [result.text for result in output]
+
 
 
 @app.local_entrypoint()

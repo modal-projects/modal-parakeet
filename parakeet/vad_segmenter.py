@@ -115,7 +115,7 @@ class SileroVADSegmenter:
                         await transcription_queue.put(SHUTDOWN_SIGNAL)
                         break
                     print(f"Received {len(audio_segment)} bytes for transcription")
-                    transcript = await self.transcriber.transcribe.remote(audio_segment)
+                    transcript = await self.transcriber.transcribe.remote.aio(audio_segment)
                     print(f"Transcript: {transcript}")
                     await transcription_queue.put(transcript)
 
