@@ -62,7 +62,6 @@ with image.imports():
     volumes={CACHE_DIR: model_cache}, 
     gpu="L40S", 
     image=image,
-    # min_containers=1,
 )
 class Parakeet:
 

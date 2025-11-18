@@ -37,7 +37,6 @@ with image.imports():
 @app.cls(
     volumes={cache_path: model_cache}, 
     image=image,
-    # min_containers=1,
 )
 class SileroVADSegmenter:
 
